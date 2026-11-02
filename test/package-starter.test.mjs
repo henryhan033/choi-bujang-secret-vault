@@ -12,7 +12,7 @@ test('패키징 함수 기준표는 시작 틀의 실제 API와 일치한다', a
   assert.equal(baseline.version, 1);
   assert.equal(baseline.starter, 'ChoiTimo/aleph-defense-starter');
   assert.deepEqual(baseline.functions, []);
-  assert.deepEqual(baseline.allowedNew, ['api/ai.js', 'api/threat-intel.js']);
+  assert.deepEqual(baseline.allowedNew, ['api/ai.js', 'api/notes.js', 'api/threat-intel.js']);
   assert.deepEqual(actual, [...baseline.functions, ...baseline.allowedNew].sort());
 });
 
@@ -39,4 +39,37 @@ test('P7 시작 틀 안내는 실제 빌드 조건과 새 배포 시험에 맞�
   assert.match(readme, /Vercel이 제공하는 저장소·커밋·배포 URL 정보/u);
   assert.doesNotMatch(readme, /npm start/u);
   assert.match(selfCheck, /P7-3\.png/u);
+});
+
+
+test('notes API rejects non-GET requests and does not disclose server configuration', async () => {
+  const { default: handler } = await import('../api/notes.js');
+  const originalUrl = process.env.SUPABASE_URL;
+  const originalKey = process.env.SUPABASE_SECRET_KEY;
+  const headers = new Map();
+  try {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SECRET_KEY;
+    let status;
+    let body;
+    const response = {
+      setHeader: (key, value) => headers.set(key.toLowerCase(), value),
+      status: value => { status = value; return { json: value => { body = value; } }; },
+    };
+    await handler({ method: 'POST' }, response);
+    assert.equal(status, 405);
+    assert.equal(headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(headers.get('cache-control'), 'no-store, private');
+    assert.equal(body.error, 'METHOD_NOT_ALLOWED');
+
+    await handler({ method: 'GET' }, response);
+    assert.equal(status, 500);
+    assert.deepEqual(body, { error: 'SERVER_CONFIGURATION_ERROR' });
+    assert.equal(JSON.stringify(body).includes(originalKey || 'SUPABASE_SECRET_KEY_VALUE'), false);
+  } finally {
+    if (originalUrl === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = originalUrl;
+    if (originalKey === undefined) delete process.env.SUPABASE_SECRET_KEY;
+    else process.env.SUPABASE_SECRET_KEY = originalKey;
+  }
 });
